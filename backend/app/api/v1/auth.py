@@ -1,9 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, get_redis
 from app.core.redis import RedisClient
-from app.core.security import create_access_token, create_refresh_token, verify_token
+from app.core.security import create_access_token, create_refresh_token, verify_password, verify_token
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.user import (
@@ -12,9 +13,10 @@ from app.schemas.user import (
     UserCreate,
     UserResponse,
 )
-from app.services.auth_service import create_user, get_user_by_email
+from app.services.auth_service import create_user, get_user_by_email, get_user_by_id
 
 router = APIRouter()
+security_scheme = HTTPBearer()
 
 
 @router.post(
@@ -51,18 +53,11 @@ async def login(
     """Authenticate user and return tokens."""
     user = await get_user_by_email(db, user_data.email)
 
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User with this email not found",
-        )
-
-    from app.core.security import verify_password
-
-    if not verify_password(user_data.password, user.hashed_password):
+    # BUG-11: same error for wrong email and wrong password (prevent email enumeration)
+    if not user or not verify_password(user_data.password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect password",
+            detail="Invalid email or password",
         )
 
     access_token = create_access_token(data={"sub": str(user.id)})
@@ -90,6 +85,13 @@ async def refresh_token(
         )
 
     user_id = payload.get("sub")
+
+    # BUG-13: verify user still exists in DB
+    import uuid
+    user = await get_user_by_id(db, uuid.UUID(user_id))
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+
     access_token = create_access_token(data={"sub": user_id})
     refresh_token = create_refresh_token(data={"sub": user_id})
 
@@ -101,9 +103,18 @@ async def refresh_token(
 
 @router.post("/logout")
 async def logout(
+    credentials: HTTPAuthorizationCredentials = Depends(security_scheme),
     current_user: User = Depends(get_current_user),
+    redis: RedisClient = Depends(get_redis),
 ):
-    """Logout user."""
+    """Logout user. BUG-12: blacklist token in Redis."""
+    from app.core.config import settings
+    token = credentials.credentials
+    payload = verify_token(token)
+    if payload:
+        jti = payload.get("jti") or token[-16:]
+        ttl = settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
+        await redis.set(f"blacklist:{jti}", "1", ex=ttl)
     return {"message": "Successfully logged out"}
 
 

@@ -1,6 +1,7 @@
 import uuid
 
 from sqlalchemy import func, select
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.todo import Todo
@@ -28,7 +29,8 @@ async def get_todos(
     limit: int = 20,
 ) -> tuple[list[Todo], int]:
     """Get all todos with pagination for a specific user."""
-    query = select(Todo).where(Todo.user_id == user_id).offset(skip).limit(limit)
+    # BUG-10: eager load user to avoid N+1 queries
+    query = select(Todo).options(selectinload(Todo.user)).where(Todo.user_id == user_id).offset(skip).limit(limit)
     result = await db.execute(query)
     todos = list(result.scalars().all())
 

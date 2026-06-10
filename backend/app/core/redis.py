@@ -23,16 +23,28 @@ class RedisClient:
         return self._redis
 
     async def get(self, key: str) -> str | None:
-        return await self._redis.get(key)
+        try:
+            return await self._redis.get(key)
+        except Exception:
+            return None
 
     async def set(self, key: str, value: str, ex: int | None = None):
-        await self._redis.set(key, value, ex=ex)
+        try:
+            await self._redis.set(key, value, ex=ex)
+        except Exception:
+            pass
 
     async def delete(self, key: str):
-        await self._redis.delete(key)
+        try:
+            await self._redis.delete(key)
+        except Exception:
+            pass
 
     async def exists(self, key: str) -> bool:
-        return await self._redis.exists(key)
+        try:
+            return await self._redis.exists(key)
+        except Exception:
+            return False
 
 
 redis_client = RedisClient()
