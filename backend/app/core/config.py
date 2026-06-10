@@ -11,6 +11,9 @@ class Settings(BaseSettings):
     # Redis
     REDIS_URL: str = "redis://localhost:6379/0"
 
+    # Application timezone used for date-only filters and API timestamps.
+    APP_TIMEZONE: str = "Asia/Ho_Chi_Minh"
+
     # JWT
     JWT_SECRET: str = "super-secret-key-change-in-production"
     JWT_ALGORITHM: str = "HS256"

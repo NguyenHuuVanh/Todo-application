@@ -17,6 +17,8 @@ from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
 
+TEST_REDIS_STORE: dict[str, str] = {}
+
 test_engine = create_async_engine(TEST_DATABASE_URL, echo=False)
 test_session_maker = async_sessionmaker(
     test_engine,
@@ -34,6 +36,7 @@ def event_loop():
 
 @pytest.fixture(autouse=True)
 async def setup_db():
+    TEST_REDIS_STORE.clear()
     async with test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield
@@ -52,10 +55,30 @@ async def override_get_db() -> AsyncGenerator[AsyncSession, None]:
 
 
 def override_get_redis():
+    async def get(key: str):
+        return TEST_REDIS_STORE.get(key)
+
+    async def set_value(key: str, value: str, ex: int | None = None):
+        TEST_REDIS_STORE[key] = value
+
+    async def delete(key: str):
+        TEST_REDIS_STORE.pop(key, None)
+
+    async def delete_pattern(pattern: str):
+        prefix = pattern.rstrip("*")
+        for key in list(TEST_REDIS_STORE):
+            if key.startswith(prefix):
+                TEST_REDIS_STORE.pop(key, None)
+
+    async def exists(key: str):
+        return key in TEST_REDIS_STORE
+
     mock_redis = MagicMock()
-    mock_redis.get = AsyncMock(return_value=None)
-    mock_redis.set = AsyncMock()
-    mock_redis.delete = AsyncMock()
+    mock_redis.get = AsyncMock(side_effect=get)
+    mock_redis.set = AsyncMock(side_effect=set_value)
+    mock_redis.delete = AsyncMock(side_effect=delete)
+    mock_redis.delete_pattern = AsyncMock(side_effect=delete_pattern)
+    mock_redis.exists = AsyncMock(side_effect=exists)
     return mock_redis
 
 

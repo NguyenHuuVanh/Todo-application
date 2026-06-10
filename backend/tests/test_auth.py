@@ -2,6 +2,7 @@
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy.exc import IntegrityError
 
 
 @pytest.mark.asyncio
@@ -16,6 +17,22 @@ async def test_register_success(client: AsyncClient):
     assert "access_token" in data
     assert "refresh_token" in data
     assert data["token_type"] == "bearer"
+
+
+@pytest.mark.asyncio
+async def test_register_integrity_error_returns_conflict(client: AsyncClient, monkeypatch):
+    """Duplicate email races return a controlled conflict instead of 500."""
+
+    async def raise_integrity_error(*_args, **_kwargs):
+        raise IntegrityError("insert users", {}, Exception("duplicate email"))
+
+    monkeypatch.setattr("app.api.v1.auth.create_user", raise_integrity_error)
+
+    response = await client.post(
+        "/api/v1/auth/register",
+        json={"email": "race@example.com", "password": "password123"},
+    )
+    assert response.status_code == 409
 
 
 @pytest.mark.asyncio
@@ -75,3 +92,53 @@ async def test_logout(client: AsyncClient):
     )
     assert response.status_code == 200
     assert response.json()["message"] == "Successfully logged out"
+
+    me_response = await client.get(
+        "/api/v1/auth/me",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert me_response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_refresh_token_rejected_after_logout(client: AsyncClient):
+    """Logout revokes refresh tokens issued before logout."""
+    reg_response = await client.post(
+        "/api/v1/auth/register",
+        json={"email": "logout_refresh@example.com", "password": "password123"},
+    )
+    data = reg_response.json()
+
+    response = await client.post(
+        "/api/v1/auth/logout",
+        headers={"Authorization": f"Bearer {data['access_token']}"},
+    )
+    assert response.status_code == 200
+
+    refresh_response = await client.post(
+        "/api/v1/auth/refresh",
+        json={"refresh_token": data["refresh_token"]},
+    )
+    assert refresh_response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_old_refresh_token_rejected_after_rotation(client: AsyncClient):
+    """Using a refresh token rotates and revokes the old refresh token."""
+    reg_response = await client.post(
+        "/api/v1/auth/register",
+        json={"email": "refresh_rotate@example.com", "password": "password123"},
+    )
+    old_refresh_token = reg_response.json()["refresh_token"]
+
+    first_refresh = await client.post(
+        "/api/v1/auth/refresh",
+        json={"refresh_token": old_refresh_token},
+    )
+    assert first_refresh.status_code == 200
+
+    second_refresh = await client.post(
+        "/api/v1/auth/refresh",
+        json={"refresh_token": old_refresh_token},
+    )
+    assert second_refresh.status_code == 401
