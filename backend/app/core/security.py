@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime, timedelta, timezone
+from time import time
 from typing import Any
 
 from jose import JWTError, jwt
@@ -26,7 +27,14 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None) -> s
         expire = datetime.now(timezone.utc) + timedelta(
             minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES
         )
-    to_encode.update({"exp": expire, "type": "access"})
+    to_encode.update(
+        {
+            "exp": expire,
+            "iat": time(),
+            "jti": str(uuid.uuid4()),
+            "type": "access",
+        }
+    )
     encoded_jwt = jwt.encode(
         to_encode, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM
     )
@@ -39,7 +47,14 @@ def create_refresh_token(data: dict, expires_delta: timedelta | None = None) -> 
         expire = datetime.now(timezone.utc) + expires_delta
     else:
         expire = datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
-    to_encode.update({"exp": expire, "type": "refresh", "jti": str(uuid.uuid4())})
+    to_encode.update(
+        {
+            "exp": expire,
+            "iat": time(),
+            "jti": str(uuid.uuid4()),
+            "type": "refresh",
+        }
+    )
     encoded_jwt = jwt.encode(
         to_encode, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM
     )

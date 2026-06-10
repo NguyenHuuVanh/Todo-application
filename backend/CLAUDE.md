@@ -83,7 +83,7 @@ Trước khi implement bất kỳ thứ gì:
 |-------|-----------|
 | Framework | Python 3.x + **FastAPI** (async) |
 | Database | **PostgreSQL** via `asyncpg` + SQLAlchemy 2.0 |
-| Cache | **Redis** (TTL 5 phút, key hiện tại: `"todos:list"`) |
+| Cache | **Redis** (TTL 5 phút, key scoped theo user/page/size) |
 | Auth | **JWT** — access (30min) + refresh (7 ngày), `python-jose` + `bcrypt` |
 | ORM | SQLAlchemy 2.0 — `Mapped[T]` / `mapped_column` |
 | Migrations | **Alembic** |
@@ -125,14 +125,28 @@ backend/
 
 ---
 
-## ⚠️ KNOWN ISSUES (đã biết, cần kiểm tra)
+## ✅ BACKEND BUG-FIX STATUS
 
-| Issue | Location | Mô tả |
-|-------|----------|-------|
-| Cache không scope theo user | `todos.py:37` | `cache_key = "todos:list"` — không phân biệt user |
-| `verify_exp: False` | `security.py:53` | Token hết hạn vẫn được accept |
-| Thiếu ownership check | `todos.py` get/put/delete | Chưa verify `todo.user_id == current_user.id` |
-| Email không unique constraint | `models/user.py` | Không có `unique=True` ở DB level |
+Nguồn sự thật hiện tại: `backend/docs/BUG_REPORT.md`.
+
+Tính đến lần review gần nhất, report backend đã được gộp còn 20 bugs và tất cả đang ở trạng thái **Fixed**. Khi tiếp tục làm backend, không săn lại các lỗi cũ theo trạng thái ban đầu; thay vào đó hãy kiểm tra regression quanh các nhóm sau:
+
+| Area | Trạng thái hiện tại |
+|------|---------------------|
+| JWT expiry, token type, malformed `sub` | Fixed + tested |
+| Logout blacklist, access token revoke | Fixed + tested |
+| Refresh token rotation/revoke | Fixed + tested |
+| Todo ownership read/update/delete | Fixed + tested |
+| Todo cache scope/invalidation | Fixed + tested |
+| Todo ordering, page-size limit, description length | Fixed + tested |
+| Email unique/index migration, duplicate race handling | Fixed/migration added |
+
+**Không chỉnh report theo cảm tính.** Nếu phát hiện bug mới:
+
+1. Xác minh bug vẫn tồn tại trong code hiện tại.
+2. Tránh tách nhỏ các case cùng root cause.
+3. Thêm hoặc cập nhật test nếu thực tế làm được.
+4. Cập nhật `backend/docs/BUG_REPORT.md` với `Implemented` và `Tests` chính xác.
 
 ---
 
@@ -142,9 +156,14 @@ backend/
 # Chạy toàn bộ stack
 docker-compose up
 
-# Tests
-pytest
-pytest tests/test_todos.py -v
+# Tests trong container đang chạy
+docker compose exec -T backend pytest
+
+# Tests đúng với code workspace hiện tại, kể cả khi image chưa rebuild
+docker compose run --rm -T --no-deps -v "${PWD}\backend:/app" backend pytest
+
+# Syntax check local
+python -m compileall backend\app backend\tests
 
 # Lint / Format
 flake8 app/
@@ -179,6 +198,12 @@ if todo.user_id != current_user.id:
 
 # ✅ Cache key có user scope (pattern cần áp dụng)
 cache_key = f"todos:user:{current_user.id}:page:{page}:size:{size}"
+
+# ✅ Cache invalidation theo toàn bộ todo cache của user
+await redis.delete_pattern(f"todos:user:{current_user.id}:*")
+
+# ✅ Todo pagination deterministic
+query = query.order_by(Todo.created_at.desc(), Todo.id.desc())
 ```
 
 ---

@@ -158,6 +158,42 @@ async def test_login_same_error_for_wrong_email_and_wrong_password(client: Async
     assert res_no_user.status_code == res_wrong_pw.status_code == 401
 
 
+@pytest.mark.asyncio
+async def test_login_short_password_returns_401_not_422(client: AsyncClient):
+    """Login uses auth failure semantics instead of register validation."""
+    await register(client, "short_login@example.com")
+
+    res = await client.post(
+        "/api/v1/auth/login",
+        json={"email": "short_login@example.com", "password": "abc"},
+    )
+    assert res.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_access_token_with_non_string_sub_returns_401(client: AsyncClient):
+    """Malformed access token subject must not return 500."""
+    malformed = create_access_token(data={"sub": 123})
+
+    res = await client.get(
+        "/api/v1/auth/me",
+        headers={"Authorization": f"Bearer {malformed}"},
+    )
+    assert res.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_refresh_rejects_invalid_uuid_sub(client: AsyncClient):
+    """Malformed refresh token subject must not return 500."""
+    malformed = create_refresh_token(data={"sub": "not-a-uuid"})
+
+    res = await client.post(
+        "/api/v1/auth/refresh",
+        json={"refresh_token": malformed},
+    )
+    assert res.status_code == 401
+
+
 # --- BUG-15: Password min length ---
 
 @pytest.mark.asyncio

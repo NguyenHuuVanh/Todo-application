@@ -40,6 +40,14 @@ class RedisClient:
         except Exception:
             pass
 
+    async def delete_pattern(self, pattern: str):
+        try:
+            keys = [key async for key in self._redis.scan_iter(match=pattern)]
+            if keys:
+                await self._redis.delete(*keys)
+        except Exception:
+            pass
+
     async def exists(self, key: str) -> bool:
         try:
             return await self._redis.exists(key)

@@ -58,9 +58,15 @@ export function TodoForm({ mode, todo, open, onClose }: TodoFormProps) {
   };
 
   const isPending = createTodo.isPending || updateTodo.isPending;
+  const handleClose = () => {
+    if (mode === "create") {
+      reset({ title: "", description: "" });
+    }
+    onClose();
+  };
 
   return (
-    <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
+    <Dialog open={open} onOpenChange={(isOpen) => !isOpen && handleClose()}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>
@@ -101,7 +107,7 @@ export function TodoForm({ mode, todo, open, onClose }: TodoFormProps) {
             <Button
               type="button"
               variant="outline"
-              onClick={onClose}
+              onClick={handleClose}
             >
               Cancel
             </Button>
